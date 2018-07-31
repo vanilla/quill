@@ -1,4 +1,6 @@
 import Parchment from 'parchment';
+import Delta from 'quill-delta';
+import DeltaOp from 'quill-delta/lib/op';
 import Quill from '../core/quill';
 import Module from '../core/module';
 
@@ -47,10 +49,16 @@ class History extends Module {
   record(changeDelta, oldDelta) {
     if (changeDelta.ops.length === 0) return;
     this.stack.redo = [];
-    let undoDelta = this.quill.getContents().diff(oldDelta);
-    let timestamp = Date.now();
-    if (this.lastRecorded + this.options.delay > timestamp && this.stack.undo.length > 0) {
-      let delta = this.stack.undo.pop();
+    let undoDelta = guessUndoDelta(changeDelta);
+    if (undoDelta == null) {
+      undoDelta = this.quill.getContents().diff(oldDelta);
+    }
+    const timestamp = Date.now();
+    if (
+      this.lastRecorded + this.options.delay > timestamp &&
+      this.stack.undo.length > 0
+    ) {
+      const delta = this.stack.undo.pop();
       undoDelta = undoDelta.compose(delta.undo);
       changeDelta = delta.redo.compose(changeDelta);
     } else {
@@ -116,5 +124,21 @@ function getLastChangeIndex(delta) {
   return changeIndex;
 }
 
+function guessUndoDelta(delta) {
+  const undoDelta = new Delta();
+  let failed = false;
+  delta.forEach(op => {
+    if (op.insert) {
+      undoDelta.delete(DeltaOp.length(op));
+    } else if (op.retain && op.attributes == null) {
+      undoDelta.retain(op.retain);
+    } else {
+      failed = true;
+      return false;
+    }
+    return true;
+  });
+  return failed ? null : undoDelta;
+}
 
 export { History as default, getLastChangeIndex };
