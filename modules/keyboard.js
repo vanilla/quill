@@ -56,69 +56,97 @@ class Keyboard extends Module {
     this.listen();
   }
 
-  addBinding(key, context = {}, handler = {}) {
-    let binding = normalize(key);
-    if (binding == null || binding.key == null) {
-      return debug.warn('Attempted to add invalid keyboard binding', binding);
+  addBinding(keyBinding, context = {}, handler = {}) {
+    const binding = normalize(keyBinding);
+    if (binding == null) {
+      debug.warn('Attempted to add invalid keyboard binding', binding);
+      return;
     }
     if (typeof context === 'function') {
       context = { handler: context };
     }
     if (typeof handler === 'function') {
-      handler = { handler: handler };
+      handler = { handler };
     }
-    binding = extend(binding, context, handler);
-    this.bindings[binding.key] = this.bindings[binding.key] || [];
-    this.bindings[binding.key].push(binding);
+    const keys = Array.isArray(binding.key) ? binding.key : [binding.key];
+    keys.forEach(key => {
+      const singleBinding = extend({}, binding, { key }, context, handler);
+      this.bindings[singleBinding.key] = this.bindings[singleBinding.key] || [];
+      this.bindings[singleBinding.key].push(singleBinding);
+    });
   }
 
   listen() {
-    this.quill.root.addEventListener('keydown', (evt) => {
+    this.quill.root.addEventListener('keydown', evt => {
       if (evt.defaultPrevented) return;
-      let which = evt.which || evt.keyCode;
-      let bindings = (this.bindings[which] || []).filter(function(binding) {
-        return Keyboard.match(evt, binding);
-      });
-      if (bindings.length === 0) return;
-      let range = this.quill.getSelection();
+      const bindings = (this.bindings[evt.key] || []).concat(
+        this.bindings[evt.which] || [],
+      );
+      const matches = bindings.filter(binding => Keyboard.match(evt, binding));
+      if (matches.length === 0) return;
+      const range = this.quill.getSelection();
       if (range == null || !this.quill.hasFocus()) return;
-      let [line, offset] = this.quill.getLine(range.index);
-      let [leafStart, offsetStart] = this.quill.getLeaf(range.index);
-      let [leafEnd, offsetEnd] = range.length === 0 ? [leafStart, offsetStart] : this.quill.getLeaf(range.index + range.length);
-      let prefixText = leafStart instanceof Parchment.Text ? leafStart.value().slice(0, offsetStart) : '';
-      let suffixText = leafEnd instanceof Parchment.Text ? leafEnd.value().slice(offsetEnd) : '';
-      let curContext = {
+      const [line, offset] = this.quill.getLine(range.index);
+      const [leafStart, offsetStart] = this.quill.getLeaf(range.index);
+      const [leafEnd, offsetEnd] =
+        range.length === 0
+          ? [leafStart, offsetStart]
+          : this.quill.getLeaf(range.index + range.length);
+      const prefixText =
+        leafStart instanceof TextBlot
+          ? leafStart.value().slice(0, offsetStart)
+          : '';
+      const suffixText =
+        leafEnd instanceof TextBlot ? leafEnd.value().slice(offsetEnd) : '';
+      const curContext = {
         collapsed: range.length === 0,
         empty: range.length === 0 && line.length() <= 1,
         format: this.quill.getFormat(range),
-        offset: offset,
+        line,
+        offset,
         prefix: prefixText,
-        suffix: suffixText
+        suffix: suffixText,
+        event: evt,
       };
-      let prevented = bindings.some((binding) => {
-        if (binding.collapsed != null && binding.collapsed !== curContext.collapsed) return false;
-        if (binding.empty != null && binding.empty !== curContext.empty) return false;
-        if (binding.offset != null && binding.offset !== curContext.offset) return false;
+      const prevented = matches.some(binding => {
+        if (
+          binding.collapsed != null &&
+          binding.collapsed !== curContext.collapsed
+        ) {
+          return false;
+        }
+        if (binding.empty != null && binding.empty !== curContext.empty) {
+          return false;
+        }
+        if (binding.offset != null && binding.offset !== curContext.offset) {
+          return false;
+        }
         if (Array.isArray(binding.format)) {
           // any format is present
-          if (binding.format.every(function(name) {
-            return curContext.format[name] == null;
-          })) {
+          if (binding.format.every(name => curContext.format[name] == null)) {
             return false;
           }
         } else if (typeof binding.format === 'object') {
           // all formats must match
-          if (!Object.keys(binding.format).every(function(name) {
-            if (binding.format[name] === true) return curContext.format[name] != null;
-            if (binding.format[name] === false) return curContext.format[name] == null;
-            return equal(binding.format[name], curContext.format[name]);
-          })) {
+          if (
+            !Object.keys(binding.format).every(name => {
+              if (binding.format[name] === true)
+                return curContext.format[name] != null;
+              if (binding.format[name] === false)
+                return curContext.format[name] == null;
+              return equal(binding.format[name], curContext.format[name]);
+            })
+          ) {
             return false;
           }
         }
-        if (binding.prefix != null && !binding.prefix.test(curContext.prefix)) return false;
-        if (binding.suffix != null && !binding.suffix.test(curContext.suffix)) return false;
-        return binding.handler.call(this, range, curContext) !== true;
+        if (binding.prefix != null && !binding.prefix.test(curContext.prefix)) {
+          return false;
+        }
+        if (binding.suffix != null && !binding.suffix.test(curContext.suffix)) {
+          return false;
+        }
+        return binding.handler.call(this, range, curContext, binding) !== true;
       });
       if (prevented) {
         evt.preventDefault();
