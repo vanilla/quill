@@ -78,7 +78,9 @@ class Keyboard extends Module {
 
   listen() {
     this.quill.root.addEventListener('keydown', evt => {
-      if (evt.defaultPrevented) return;
+      if (evt.defaultPrevented) {
+        return;
+      }
       const bindings = (this.bindings[evt.key] || []).concat(
         this.bindings[evt.which] || [],
       );
@@ -498,19 +500,11 @@ function makeFormatHandler(format) {
 
 function normalize(binding) {
   if (typeof binding === 'string' || typeof binding === 'number') {
-    return normalize({ key: binding });
-  }
-  if (typeof binding === 'object') {
+    binding = { key: binding };
+  } else if (typeof binding === 'object') {
     binding = clone(binding, false);
-  }
-  if (typeof binding.key === 'string') {
-    if (Keyboard.keys[binding.key.toUpperCase()] != null) {
-      binding.key = Keyboard.keys[binding.key.toUpperCase()];
-    } else if (binding.key.length === 1) {
-      binding.key = binding.key.toUpperCase().charCodeAt(0);
-    } else {
-      return null;
-    }
+  } else {
+    return null;
   }
   if (binding.shortKey) {
     binding[SHORTKEY] = binding.shortKey;
@@ -518,6 +512,5 @@ function normalize(binding) {
   }
   return binding;
 }
-
 
 export { Keyboard as default, SHORTKEY };
